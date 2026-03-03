@@ -38,10 +38,11 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 - Interpolación lineal: inventaría ventas que nunca existieron
 - Forward fill: asume que las ventas se mantienen, no realista para días sin operación
 **Justificación**:
-- **Categoría (todo Iowa)**: fillna(0) es correcto. Si nadie en todo el estado compró "100 Proof Vodka" un martes, la venta fue realmente $0.
+- **Categoría (todo Iowa)**: fillna(0) es correcto. Si nadie en todo el estado compró \"100 Proof Vodka\" un martes, la venta fue realmente $0. En `analisis-calidad.ipynb` se reindexan las series diarias y se aplica `fillna(0)` solo en este nivel.
 - **Tienda individual**: una tienda sin registros un domingo probablemente estaba cerrada. La demanda no era $0. SARIMA modela estas caídas como patrón, inflando la varianza.
-- **Solución**: Detectar días de cierre (0 transacciones en TODAS las categorías de una tienda) y excluirlos del entrenamiento SARIMA.
-**Impacto**: Reduce la varianza artificial en series de tiendas.
+- **Solución**: Detectar días de cierre (0 transacciones en TODAS las categorías de una tienda) y excluirlos del entrenamiento SARIMA o marcarlos con un flag `es_cierre_tienda = 1` sin imputar 0 ventas.
+- **Validación**: La política se documenta y prueba explícitamente con ejemplos sintéticos en `analisis-calidad.ipynb` para evitar regresiones.
+**Impacto**: Reduce la varianza artificial en series de tiendas y evita interpretar erróneamente cierres de tienda como días de demanda nula.
 
 ---
 
