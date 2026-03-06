@@ -131,3 +131,18 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 - `ROWS BETWEEN 7 PRECEDING AND CURRENT ROW`: incluye el día actual → data leakage
 **Justificación**: Al predecir el día t, solo podemos usar información hasta t-1. Incluir t en el feature significa que el modelo "ve" la respuesta.
 **Impacto**: Previene data leakage. Las métricas reflejan rendimiento real en producción.
+
+---
+
+## D11: Refactor de feature engineering y cache de modelos
+
+**Fecha**: 2026-03-06
+**Decisión**: Simplificar el pipeline de feature engineering y entrenamiento de modelos globales (XGBoost, SARIMA) trabajando sólo con pandas y cacheando los modelos entrenados por serie/categoría.
+**Alternativas consideradas**:
+- Mantener el feature engineering repartido entre SQL/DuckDB y pandas: mayor complejidad y más puntos de fallo
+- No cachear modelos: reentrenar todo en cada ejecución del notebook, con tiempos de corrida altos
+**Justificación**:
+- Centralizar el feature engineering (lags, medias móviles, features de calendario, flags de cierre, etc.) en un único pipeline en pandas hace el código más legible, testeable y fácil de depurar.
+- Eliminar dependencia de DuckDB en la etapa de modelado reduce fricción para correr el notebook en otros entornos (por ejemplo, sin motor SQL instalado).
+- Cachear los modelos entrenados (por ejemplo con `joblib`) por clave de serie/categoría permite reutilizar resultados entre corridas, acelerar el flujo iterativo y evitar sobrecostos de CPU si sólo cambian algunos parámetros o el horizonte de predicción.
+**Impacto**: El notebook de forecasting es más reproducible y rápido de ejecutar; además, se puede inspeccionar y reutilizar fácilmente el conjunto de modelos entrenados para análisis posteriores o futuros despliegues.
