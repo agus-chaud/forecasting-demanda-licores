@@ -10,3 +10,6 @@ xgboost
 lightgbm
 scikit-learn
 joblib
+# Dashboard Streamlit (si se despliega o se ejecuta dashboard/app.py)
+streamlit>=1.28.0
+pyarrow>=12.0.0

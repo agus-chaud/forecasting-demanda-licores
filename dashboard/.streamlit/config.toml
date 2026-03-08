@@ -1,0 +1,13 @@
+# Tema tienda de licores: fondos oscuros, acento amarillo-naranja
+[theme]
+primaryColor = "#e67e22"
+backgroundColor = "#1a1a2e"
+secondaryBackgroundColor = "#16213e"
+textColor = "#f5f5f5"
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

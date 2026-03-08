@@ -1,0 +1,9 @@
+{
+  "title": "Forecasting Licores - Dashboard",
+  "pages": [
+    {"file": "1_Resumen_modelo.py", "title": "Resumen del modelo", "data_sources": ["artifacts/modeling/experiment_manifest_latest.json"]},
+    {"file": "2_Ventas_y_predicciones.py", "title": "Ventas y predicciones", "data_sources": ["data/predictions/forecasting_predictions.parquet", "data/predictions/forecasting_predictions.csv"]},
+    {"file": "3_Comparativa_historial.py", "title": "Comparativa e historial", "data_sources": ["artifacts/modeling/experiments_history.csv"]}
+  ],
+  "auth": "usuario/contraseña vía Secrets (usuario, password) o env DASHBOARD_USUARIO, DASHBOARD_PASSWORD"
+}

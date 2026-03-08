@@ -16,3 +16,8 @@ Thumbs.db
 
 *.log
 
+# Dashboard secrets (nunca versionar)
+.streamlit/secrets.toml
+dashboard/.streamlit/secrets.toml
+**/secrets.toml
+
