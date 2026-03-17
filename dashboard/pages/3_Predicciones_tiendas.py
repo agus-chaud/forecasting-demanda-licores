@@ -7,6 +7,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
+import pydeck as pdk
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from auth import check_auth
@@ -186,7 +187,7 @@ else:
         st.caption(f"{len(df_store_f):,} filas filtradas | Tiendas visibles: {df_store_f['store_id'].nunique() if 'store_id' in df_store_f.columns else 0}")
         draw_tiles(top_stores, "ventas_store_sel", "tile_store")
 
-        t1, t2, t3 = st.tabs(["Serie temporal tiendas", "Por tienda", "Tabla tiendas"])
+        t1, t2, t3 = st.tabs(["Serie temporal tiendas", "Por tienda", "Mapa de calor"])
         with t1:
             agg = df_store_f.groupby("fecha").agg({actual_store_col: "sum", pred_store_col: "sum"}).reset_index()
             fig = go.Figure()
@@ -209,4 +210,82 @@ else:
             else:
                 st.info("No hay columna `store_id` en el archivo de tiendas.")
         with t3:
-            st.dataframe(df_store_f, use_container_width=True)
+            st.subheader("Densidad de ventas por ubicación")
+            coords_path = Path(PREDICTIONS_BY_STORE_PARQUET).parent.parent / "store_coordinates.parquet"
+            if not coords_path.exists():
+                st.warning("⚠️ No se encontró el archivo de coordenadas de tiendas. Ejecuta la extracción primero.")
+            else:
+                try:
+                    df_coords = pd.read_parquet(coords_path)
+                    
+                    # Agile hex to rgb converter for the ACCENT color
+                    h = ACCENT.lstrip('#')
+                    rgb_color = tuple(int(h[i:i+2], 16) for i in (0, 2, 4)) if len(h) == 6 else (255, 100, 0)
+                    pdk_color = [rgb_color[0], rgb_color[1], rgb_color[2], 160]
+
+                    # Aggregate sales for map size
+                    df_map = df_store_f.groupby('store_id').agg({
+                        actual_store_col: 'sum',
+                        pred_store_col: 'sum'
+                    }).reset_index()
+                    
+                    df_map['store_id'] = df_map['store_id'].astype(int)
+                    df_coords['store_id'] = df_coords['store_id'].astype(int)
+                    df_merged = df_map.merge(df_coords, on='store_id', how='inner')
+                    
+                    if df_merged.empty:
+                        st.info("No hay coordenadas disponibles para el conjunto de tiendas filtrado.")
+                    else:
+                        msg = f"Mostrando {len(df_merged)} tiendas en el mapa."
+                        if tier_sel != "Todas":
+                            msg += f" (Filtradas por Tier: {tier_sel})"
+                        st.caption(msg)
+                        
+                        # Normalize sales for radius
+                        max_val = df_merged[actual_store_col].max()
+                        if max_val > 0:
+                            df_merged['adjusted_radius'] = (df_merged[actual_store_col] / max_val) * 15000 + 1000
+                        else:
+                            df_merged['adjusted_radius'] = 1000
+                        
+                        center_lat = df_merged["lat"].mean() if not df_merged.empty else 41.8780
+                        center_lon = df_merged["lon"].mean() if not df_merged.empty else -93.0977
+
+                        view_state = pdk.ViewState(
+                            latitude=center_lat,
+                            longitude=center_lon,
+                            zoom=6.5,
+                            pitch=0,
+                        )
+
+                        # Capa 1: Mapa de calor puro geográfico
+                        heatmap_layer = pdk.Layer(
+                            "HeatmapLayer",
+                            data=df_merged,
+                            opacity=0.8,
+                            get_position="[lon, lat]",
+                            get_weight=actual_store_col,
+                            aggregation="SUM",
+                        )
+                        
+                        # Capa 2: Puntos exactos de las tiendas
+                        scatter_layer = pdk.Layer(
+                            "ScatterplotLayer",
+                            data=df_merged,
+                            get_position="[lon, lat]",
+                            get_color=[255, 255, 255, 200],
+                            get_radius="adjusted_radius",
+                            pickable=True,
+                            stroked=True,
+                            get_line_color=[rgb_color[0], rgb_color[1], rgb_color[2], 255],
+                            line_width_min_pixels=2
+                        )
+
+                        st.pydeck_chart(pdk.Deck(
+                            layers=[heatmap_layer, scatter_layer],
+                            initial_view_state=view_state,
+                            map_style=None,  # Mapa base nativo de Streamlit
+                            tooltip={"text": "Tienda: {store_id}\nVentas: {" + actual_store_col + "}"}
+                        ))
+                except Exception as e:
+                    st.error(f"Error procesando el mapa: {e}")

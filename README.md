@@ -62,6 +62,7 @@ En `analisis.ipynb` existe un **Agente de Calidad** (5 dimensiones: Completitud,
 - **Feature engineering con ventanas SQL**: `lag_7d`, `lag_14d`, `lag_28d`, `roll_mean_7`, `roll_mean_28`, `dia_semana`, `mes`, `es_finde`, `ratio_lag7_roll28`, `trend_7`.
 - **Export Parquet**: `data/ventas_por_categoria.parquet`, `data/ventas_por_tienda.parquet`, `data/features_ventas_diarias.parquet`.
 - **Diagnóstico estadístico**: Test ADF, ACF/PACF, descomposición estacional para las top 3 categorías.
+- **Heatmap de Tiendas**: Extracción robusta de coordenadas (con `duckdb` y parsing de ubicación para Iowa) para visualización de densidad.
 - **Pipeline SARIMA**: `auto_arima` para búsqueda de parámetros; entrenamiento paralelo por categoría y tienda con `joblib`.
 - **Pipeline XGBoost/LightGBM**: Modelo global con 13 features y label encoding de categoría.
 - **Ensemble**: Promedio ponderado XGBoost + LightGBM optimizado por WMAPE.
@@ -73,6 +74,7 @@ En `analisis.ipynb` existe un **Agente de Calidad** (5 dimensiones: Completitud,
 
 - **Descomposición estacional** (tendencia, estacionalidad, residuos) para top 3 categorías.
 - **ACF/PACF** para diagnóstico de parámetros SARIMA.
+- **Mapa de Calor de Tiendas**: Modelo espacial montado sobre `pydeck` (Streamlit) para interactuar con hubs comerciales usando métricas predictivas y reales.
 - **SARIMA: Predicción vs Real** (top 3 categorías).
 - **Feature Importance** (XGBoost y LightGBM).
 - **Resumen de calidad** (en `analisis.ipynb`): `df_quality` con completeness, validity y outliers.
@@ -183,6 +185,8 @@ xgboost
 lightgbm
 scikit-learn
 joblib
+pytest
+pydeck
 ```
 
 ---

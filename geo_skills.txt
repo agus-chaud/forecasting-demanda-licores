@@ -1,0 +1,28 @@
+﻿
+[38;5;250mÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòùÔûêÔûêÔòù  ÔûêÔûêÔòùÔûêÔûêÔòùÔûêÔûêÔòù     ÔûêÔûêÔòù     ÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòù[0m
+[38;5;248mÔûêÔûêÔòöÔòÉÔòÉÔòÉÔòÉÔòØÔûêÔûêÔòæ ÔûêÔûêÔòöÔòØÔûêÔûêÔòæÔûêÔûêÔòæ     ÔûêÔûêÔòæ     ÔûêÔûêÔòöÔòÉÔòÉÔòÉÔòÉÔòØ[0m
+[38;5;245mÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòùÔûêÔûêÔûêÔûêÔûêÔòöÔòØ ÔûêÔûêÔòæÔûêÔûêÔòæ     ÔûêÔûêÔòæ     ÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòù[0m
+[38;5;243mÔòÜÔòÉÔòÉÔòÉÔòÉÔûêÔûêÔòæÔûêÔûêÔòöÔòÉÔûêÔûêÔòù ÔûêÔûêÔòæÔûêÔûêÔòæ     ÔûêÔûêÔòæ     ÔòÜÔòÉÔòÉÔòÉÔòÉÔûêÔûêÔòæ[0m
+[38;5;240mÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòæÔûêÔûêÔòæ  ÔûêÔûêÔòùÔûêÔûêÔòæÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòùÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòùÔûêÔûêÔûêÔûêÔûêÔûêÔûêÔòæ[0m
+[38;5;238mÔòÜÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòØÔòÜÔòÉÔòØ  ÔòÜÔòÉÔòØÔòÜÔòÉÔòØÔòÜÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòØÔòÜÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòØÔòÜÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòØ[0m
+
+[38;5;102mInstall with[0m npx skills add <owner/repo@skill>
+
+[38;5;145mresciencelab/opc-skills@seo-geo[0m [36m10.7K installs[0m
+[38;5;102mÔöö https://skills.sh/resciencelab/opc-skills/seo-geo[0m
+
+[38;5;145mcloudai-x/threejs-skills@threejs-geometry[0m [36m1.7K installs[0m
+[38;5;102mÔöö https://skills.sh/cloudai-x/threejs-skills/threejs-geometry[0m
+
+[38;5;145mgeoffjay/claude-plugins@documentation-update[0m [36m1.4K installs[0m
+[38;5;102mÔöö https://skills.sh/geoffjay/claude-plugins/documentation-update[0m
+
+[38;5;145maaron-he-zhu/seo-geo-claude-skills@geo-content-optimizer[0m [36m985 installs[0m
+[38;5;102mÔöö https://skills.sh/aaron-he-zhu/seo-geo-claude-skills/geo-content-optimizer[0m
+
+[38;5;145msickn33/antigravity-awesome-skills@geo-fundamentals[0m [36m488 installs[0m
+[38;5;102mÔöö https://skills.sh/sickn33/antigravity-awesome-skills/geo-fundamentals[0m
+
+[38;5;145mtommygeoco/ui-audit@ui-audit[0m [36m183 installs[0m
+[38;5;102mÔöö https://skills.sh/tommygeoco/ui-audit/ui-audit[0m
+

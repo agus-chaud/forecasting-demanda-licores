@@ -139,7 +139,7 @@ else:
         if len(df_cat_f) == 0:
             st.info("No hay datos para el filtro de categorías seleccionado.")
         else:
-            t1, t2, t3 = st.tabs(["Serie temporal", "Por categoría", "Tabla"])
+            t1, t2 = st.tabs(["Serie temporal", "Por categoría"])
             with t1:
                 agg = df_cat_f.groupby("fecha").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
                 fig = go.Figure()
@@ -154,5 +154,3 @@ else:
                 fig.add_trace(go.Bar(x=bar["categoria"], y=bar[pred_col], name="Predicho", marker_color=ACCENT))
                 fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho por categoría", barmode="group", height=420, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
-            with t3:
-                st.dataframe(df_cat_f, use_container_width=True)

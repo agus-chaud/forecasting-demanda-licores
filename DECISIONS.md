@@ -197,3 +197,18 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 - **Fuente de datos desacoplada**: `paths.py` resuelve la ruta base (repo root o `dashboard/`) según si existe `artifacts/modeling/`, permitiendo correr con `streamlit run dashboard/app.py` desde cualquier directorio.
 - **Artefactos esperados**: el notebook debe generar `artifacts/modeling/experiment_manifest_latest.json` (métricas XGBoost), `artifacts/modeling/experiments_history.csv` (historial de runs) y `data/predictions/forecasting_predictions.parquet` (predicciones por categoría).
 **Impacto**: Los usuarios de negocio pueden monitorear el rendimiento del modelo y explorar predicciones sin abrir un notebook. El dashboard es stateless (solo lee artefactos) y no depende de que el notebook esté ejecutándose.
+
+---
+
+## D15: Mapa de Calor Geoespacial con PyDeck y extracción eficiente
+
+**Fecha**: 2026-03-17
+**Decisión**: Implementar un mapa de calor en Streamlit usando `pydeck` y extraer coordenadas desde el CSV original con un script dedicado en DuckDB, guiado por prácticas de Smart-Testing.
+**Alternativas consideradas**:
+- Plotly/Folium: Folium es lento para muchos scatter points; Plotly Express es funcional, pero PyDeck ofrece capas progresivas (pitch) y excelente rendimiento WebGL con miles de puntos geográficos.
+- Parsear coordenadas en Pandas cargando el dataset entero: Consume demasiada RAM (dataset ~3.5GB) y puede causar OOM en entornos pequeños.
+**Justificación**: 
+- Reusamos DuckDB para extraer únicamente `Store Number` y `Store Location` agregados, completando la tarea iterativa en segundos. 
+- Se implementó una función de parsing inteligente que soporta tanto el formato WKT `POINT (LON LAT)` como tuplas `(LAT, LON)`, validando los datos contra las fronteras geográficas de Iowa (Patrón AAA bajo la skill `smart-testing`).
+- PyDeck se acopla de manera nativa con Streamlit (`view_state` y `ScatterplotLayer`), calculando el radio del punto dinámicamente y aplicando la variable global del color `ACCENT`.
+**Impacto**: Análisis espacial intuitivo e interactivo integrado en el dashboard de ventas, permitiendo detectar visualmente focos calientes de demanda sin tiempos de recarga perceptibles.
