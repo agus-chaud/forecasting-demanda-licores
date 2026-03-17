@@ -38,7 +38,7 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 - Interpolación lineal: inventaría ventas que nunca existieron
 - Forward fill: asume que las ventas se mantienen, no realista para días sin operación
 **Justificación**:
-- **Categoría (todo Iowa)**: fillna(0) es correcto. Si nadie en todo el estado compró \"100 Proof Vodka\" un martes, la venta fue realmente $0. En `analisis-calidad.ipynb` se reindexan las series diarias y se aplica `fillna(0)` solo en este nivel.
+- **Categoría (todo Iowa)**: fillna(0) es correcto. Si nadie en todo el estado compró "100 Proof Vodka" un martes, la venta fue realmente $0. En `analisis-calidad.ipynb` se reindexan las series diarias y se aplica `fillna(0)` solo en este nivel.
 - **Tienda individual**: una tienda sin registros un domingo probablemente estaba cerrada. La demanda no era $0. SARIMA modela estas caídas como patrón, inflando la varianza.
 - **Solución**: Detectar días de cierre (0 transacciones en TODAS las categorías de una tienda) y excluirlos del entrenamiento SARIMA o marcarlos con un flag `es_cierre_tienda = 1` sin imputar 0 ventas.
 - **Validación**: La política se documenta y prueba explícitamente con ejemplos sintéticos en `analisis-calidad.ipynb` para evitar regresiones.
@@ -146,3 +146,54 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 - Eliminar dependencia de DuckDB en la etapa de modelado reduce fricción para correr el notebook en otros entornos (por ejemplo, sin motor SQL instalado).
 - Cachear los modelos entrenados (por ejemplo con `joblib`) por clave de serie/categoría permite reutilizar resultados entre corridas, acelerar el flujo iterativo y evitar sobrecostos de CPU si sólo cambian algunos parámetros o el horizonte de predicción.
 **Impacto**: El notebook de forecasting es más reproducible y rápido de ejecutar; además, se puede inspeccionar y reutilizar fácilmente el conjunto de modelos entrenados para análisis posteriores o futuros despliegues.
+
+---
+
+## D12: Dataset ML global por tienda (XGBoost/LightGBM)
+
+**Fecha**: 2026-03-09
+**Decisión**: Construir un dataset `df_xgb_tienda` global por tienda (una sola tabla) análogo a `df_xgb` por categoría, con lags/ventanas y calendar features a nivel `store_id`, y un solo modelo global que usa `store_id_enc` como feature.
+**Alternativas consideradas**:
+- Un modelo separado por tienda: máximo ajuste por serie, pero explosión de modelos y riesgo de overfitting en tiendas con pocos datos.
+- Modelo global sin identificar la tienda: pierde información clave de nivel y patrón específico por tienda.
+- Usar exclusivamente el cache `features_tienda` generado en `analisis-calidad.ipynb`: menos código en el notebook, pero acopla demasiado el pipeline de modelado a la lógica de ese notebook y dificulta la trazabilidad de las features.
+**Justificación**:
+- Un **modelo global por tienda** replica la ventaja ya usada a nivel categoría (transfer de información entre series) y reduce la complejidad operativa a un solo modelo para todas las tiendas.
+- Construir `df_xgb_tienda` en `forecasting-licores.ipynb` con pandas permite mantener en un solo lugar la definición de lags (`lag_1`, `lag_7`, `lag_14`, `lag_28`, `lag_52`, `lag_365`), estadísticas de ventana (`roll_mean_7/28`, `roll_std_7/28`, `cv_7`, `roll_mean_7`, `roll_min_7`, `roll_range_7`, `ewm_7/28`) y features de calendario (`dia_semana`, `mes`, `dia_mes`, `es_finde`, `es_festivo`, `es_semana_navidad`, `es_semana_thanksgiving`, `trimestre`, `dias_hasta_navidad`) de forma consistente con el pipeline por categoría.
+- Se reutiliza el mismo **cutoff temporal** que categoría (`fecha_max - 30 días`) para entrenar y evaluar, asegurando comparabilidad entre modelos por categoría y por tienda.
+- Se introduce un filtro de **mínimo 90 días en train por tienda**, coherente con D09, para evitar entrenar el modelo con series extremadamente cortas que añaden ruido y no aportan valor al negocio.
+- `store_id` se codifica con un **Label Encoding simple** (`store_id_enc`) suficiente para modelos de árboles de boosting (no depende del valor numérico absoluto y evita data leakage porque no usa el target).
+**Impacto**:
+- Se obtiene un dataset `df_xgb_tienda` listo para entrenar XGBoost/LightGBM globales por tienda (`X_train_store`, `y_train_store`, `X_test_store`, `y_test_store`), con el mismo esquema de features que a nivel categoría más la identificación de tienda.
+- El pipeline queda preparado para la siguiente fase del plan (entrenar modelos XGBoost/LightGBM y ensemble por tienda) sin modificar de nuevo la capa de datos.
+
+---
+
+## D13: Forecasting en escala logarítmica para modelos de boosting
+
+**Fecha**: 2026-03-06
+**Decisión**: Aplicar `log1p` al target (`ventas`) antes de entrenar XGBoost y LightGBM, y revertir con `expm1` al generar predicciones.
+**Alternativas consideradas**:
+- Escala original (sin transformación): MSE dominado por outliers de alto valor; el modelo aprende a minimizar error en categorías grandes y falla en categorías medianas.
+- Transformación Box-Cox: más flexible que log1p pero requiere estimar λ y no garantiza que 0 se mapee a 0.
+- Target encoding con suavizado: complementario, no alternativo.
+**Justificación**: Las ventas diarias siguen una distribución log-normal (cola derecha pesada). SARIMA ya trabajaba en escala log y obtenía mejor WMAPE. Log1p permite aplicar la misma escala con valores 0 (días sin ventas = log1p(0) = 0) sin manejo especial. Al entrenar con el target en escala log, el MSE penaliza errores relativos en lugar de absolutos, mejorando el rendimiento en categorías de bajo volumen.
+**Impacto**: Reduce el WMAPE de los modelos de boosting al alinear el espacio de optimización con la métrica de negocio (errores relativos ponderados). Los modelos ahora son comparables a SARIMA en términos de escala de entrenamiento.
+
+---
+
+## D14: Dashboard Streamlit con autenticación y tema oscuro
+
+**Fecha**: 2026-03-08
+**Decisión**: Construir un dashboard Streamlit multi-página en `dashboard/` con login por usuario/contraseña, tema oscuro estilo "tienda de licores" y tres páginas: Resumen del modelo, Ventas y predicciones, Comparativa e historial.
+**Alternativas consideradas**:
+- Jupyter/Voilà: ya existe el notebook, pero no es adecuado para usuarios de negocio (demasiado técnico, requiere ejecutar celdas).
+- Tableau/Power BI: herramientas externas que requieren licencia y no están integradas con el pipeline Python.
+- Dash (Plotly): alternativa viable, pero Streamlit tiene menor fricción para desarrollo rápido con el mismo stack Python.
+**Justificación**:
+- **Página única de entrada**: tras el login, `app.py` redirige directamente a `1_Resumen_modelo.py` con `st.switch_page()`, evitando una pantalla de bienvenida vacía.
+- **Solo XGBoost en producción**: la página de resumen muestra únicamente métricas de XGBoost (mejor modelo del último run) para evitar confundir a usuarios de negocio con comparaciones técnicas de modelos.
+- **Métricas con lenguaje de negocio**: cada métrica (WMAPE, MAPE, MAE, RMSE) incluye `help=` en `st.metric()` y un expander con explicación en términos de inventario, stock y planificación, no en términos estadísticos.
+- **Fuente de datos desacoplada**: `paths.py` resuelve la ruta base (repo root o `dashboard/`) según si existe `artifacts/modeling/`, permitiendo correr con `streamlit run dashboard/app.py` desde cualquier directorio.
+- **Artefactos esperados**: el notebook debe generar `artifacts/modeling/experiment_manifest_latest.json` (métricas XGBoost), `artifacts/modeling/experiments_history.csv` (historial de runs) y `data/predictions/forecasting_predictions.parquet` (predicciones por categoría).
+**Impacto**: Los usuarios de negocio pueden monitorear el rendimiento del modelo y explorar predicciones sin abrir un notebook. El dashboard es stateless (solo lee artefactos) y no depende de que el notebook esté ejecutándose.

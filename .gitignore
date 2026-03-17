@@ -8,8 +8,16 @@ venv/
 
 .ipynb_checkpoints/
 
+# Datasets pesados
+Iowa_Liquor_Sales.csv
+*.csv
+*.joblib
+*.pkl
 data/
 artifacts/
+model_cache/
+.claude/
+engram/
 
 .DS_Store
 Thumbs.db

@@ -1,0 +1,57 @@
+/* Títulos serif premium */
+h1, h2, h3 { font-family: 'Playfair Display', serif !important; color: #F8F8F8 !important; }
+.stMarkdown h1 { font-family: 'Playfair Display', serif !important; }
+
+/* Body y Data en Inter */
+body, p, span, div { font-family: 'Inter', sans-serif !important; }
+
+/* Fondo principal */
+.stApp { background-color: #0A0A0A !important; }
+
+/* Botones acento dorados */
+.stButton > button {
+    background: linear-gradient(135deg, #D9A05B 0%, #B88645 100%) !important;
+    color: #0A0A0A !important;
+    border: 1px solid #D9A05B !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out !important;
+}
+.stButton > button:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 4px 12px rgba(217, 160, 91, 0.4) !important;
+}
+
+/* Cards Glassmorphism (Contenedores y Métricas) */
+div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMetric"]),
+[data-testid="stMetric"], .css-1r6slb0, .css-12oz5g7 {
+    background: rgba(20, 20, 20, 0.6) !important;
+    backdrop-filter: blur(12px) !important;
+    -webkit-backdrop-filter: blur(12px) !important;
+    border: 1px solid #27272A !important;
+    border-radius: 16px !important;
+    padding: 1rem !important;
+    transition: transform 0.3s ease-in-out, box-shadow 0.3s ease-in-out !important;
+}
+
+div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stMetric"]):hover,
+[data-testid="stMetric"]:hover {
+    transform: translateY(-2px) !important;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+[data-testid="stMetricValue"] { color: #D9A05B !important; font-variant-numeric: tabular-nums; }
+[data-testid="stMetricDelta"] > div { color: #8C2E2A !important; }
+[data-testid="stMetricDelta"] > div > svg > path { fill: #8C2E2A !important; }
+
+/* Sidebar Glassmorphism Oscuro */
+[data-testid="stSidebar"] { background: #0A0A0A !important; border-right: 1px solid #27272A !important; }
+[data-testid="stSidebar"] .stMarkdown { color: #F8F8F8 !important; }
+
+/* Inputs y selects en tema oscuro */
+.stSelectbox > div > div { background: #141414 !important; border: 1px solid #27272A !important; color: #F8F8F8 !important; }
+.stTextInput > div > div > input { background: #141414 !important; border: 1px solid #27272A !important; color: #F8F8F8 !important; }
+
+/* Expander acento dorado */
+.streamlit-expanderHeader { border-left: 3px solid #D9A05B !important; background: transparent !important; }
+.streamlit-expanderContent { background: rgba(20, 20, 20, 0.3) !important; border: 1px solid #27272A !important; border-top: none !important; border-radius: 0 0 16px 16px !important;}

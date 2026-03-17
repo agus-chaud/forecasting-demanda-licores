@@ -47,15 +47,17 @@ st.markdown("Bienvenido. Aquí ves el rendimiento del **modelo de predicción de
 st.markdown(
     f"""
     <div style="
-        background: linear-gradient(135deg, rgba(22, 33, 62, 0.95) 0%, rgba(15, 52, 96, 0.9) 100%);
-        border: 1px solid {ACCENT};
+        background: rgba(20, 20, 20, 0.6);
+        backdrop-filter: blur(12px);
+        border: 1px solid #27272A;
         border-radius: 16px;
         padding: 1.5rem 2rem;
         margin-bottom: 1.5rem;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     ">
-        <div style="color: #94a3b8; font-size: 0.85rem; text-transform: uppercase;">Modelo en producción</div>
-        <div style="font-family: 'Playfair Display', serif; font-size: 1.75rem; color: #f5f5f5;">XGBoost</div>
-        <div style="color: {ACCENT}; font-size: 0.9rem; margin-top: 0.25rem;">Mejor equilibrio entre precisión y robustez para predecir ventas por categoría</div>
+        <div style="color: #A1A1AA; font-family: 'Inter', sans-serif; font-size: 0.85rem; text-transform: uppercase; font-weight: 600;">Modelo en producción</div>
+        <div style="font-family: 'Playfair Display', serif; font-size: 2rem; color: #F8F8F8; margin-top: 0.25rem;">XGBoost</div>
+        <div style="color: {ACCENT}; font-family: 'Inter', sans-serif; font-size: 0.95rem; margin-top: 0.25rem;">Mejor equilibrio entre precisión y robustez para predecir ventas por categoría</div>
     </div>
     """,
     unsafe_allow_html=True,
