@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs wc -l)",
+      "Bash(ls -lh \"/c/Users/Dell/Agus/Forecasing Licores\"/*.ipynb)",
+      "Bash(ls -lh \"/c/Users/Dell/Agus/Forecasing Licores/data\"/*.parquet)",
+      "Bash(ls -lh \"/c/Users/Dell/Agus/Forecasing Licores/.cursor/plans\"/*.md)",
+      "Bash(ls -lh \"/c/Users/Dell/Agus/Forecasing Licores/.cursor/rules\"/*.md)",
+      "Bash(python3:*)",
+      "Bash(ls -lah *.ipynb)",
+      "Bash(find 'C:\\\\Users\\\\Dell\\\\Agus\\\\Forecasing Licores' -name PLAN_MEJORA* -o -name plan* -o -name roadmap*)",
+      "Bash(grep -E \"\\\\.\\(md|txt|json\\)$\")",
+      "Bash(jq '.cells[] | select\\(.id == \"\"lyb5h6e4qq\"\"\\)' forecasting-licores.ipynb)"
+    ]
+  }
+}

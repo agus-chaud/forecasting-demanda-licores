@@ -21,3 +21,6 @@ Thumbs.db
 dashboard/.streamlit/secrets.toml
 **/secrets.toml
 
+Iowa_Liquor_Sales.csv
+model_cache/
+walkforward_sarima_categoria.pkl

@@ -1,6 +1,7 @@
 """
-Ventas y predicciones: grid de categorías tipo tienda, gráficos actual vs predicho (Plotly tema oscuro).
-Carga: data/predictions/forecasting_predictions.parquet o .csv
+Ventas y predicciones:
+- Bloque A: categorías de producto.
+- Bloque B: tiendas.
 """
 import sys
 from pathlib import Path
@@ -11,8 +12,8 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from auth import check_auth
-from paths import PREDICTIONS_PARQUET, PREDICTIONS_CSV
-from theme import inject_theme, ACCENT
+from paths import PREDICTIONS_BY_STORE_PARQUET, PREDICTIONS_CSV, PREDICTIONS_PARQUET
+from theme import ACCENT, inject_theme
 
 st.set_page_config(page_title="Ventas y predicciones | Forecasting Licores", page_icon="📈", layout="wide")
 check_auth()
@@ -20,106 +21,61 @@ inject_theme()
 
 
 @st.cache_data(ttl=300)
-def load_predictions(path_parquet: str, path_csv: str) -> pd.DataFrame | None:
-    p_pq, p_csv = Path(path_parquet), Path(path_csv)
+def load_predictions(path_parquet: str, path_csv: str | None = None) -> pd.DataFrame | None:
+    p_pq = Path(path_parquet)
+    p_csv = Path(path_csv) if path_csv else None
     if p_pq.exists():
-        return pd.read_parquet(p_pq)
-    if p_csv.exists():
+        df = pd.read_parquet(p_pq)
+    elif p_csv is not None and p_csv.exists():
         df = pd.read_csv(p_csv)
-        if "fecha" in df.columns:
-            df["fecha"] = pd.to_datetime(df["fecha"])
-        return df
-    return None
-
-
-df = load_predictions(str(PREDICTIONS_PARQUET), str(PREDICTIONS_CSV))
-if df is None or df.empty:
-    st.warning(
-        "No hay predicciones de ventas disponibles en este momento. "
-        "El equipo de datos las actualizará tras la próxima ejecución del forecasting."
-    )
-    st.stop()
-
-actual_col = "actual" if "actual" in df.columns else "ventas_reales"
-pred_col = "pred_ensemble" if "pred_ensemble" in df.columns else "ventas_predichas"
-if pred_col not in df.columns and "predicho" in df.columns:
-    pred_col = "predicho"
-if actual_col not in df.columns:
-    actual_col = df.columns[0]
-if pred_col not in df.columns:
-    for c in ("pred_ensemble", "predicho", "ventas_predichas"):
-        if c in df.columns:
-            pred_col = c
-            break
-
-# Lista de categorías para los tiles (máximo 6 para el grid 2x3)
-cats_raw = sorted(df["categoria"].dropna().astype(str).unique().tolist()) if "categoria" in df.columns else []
-CAT_TILE_COLORS = ["#e67e22", "#c2410c", "#b45309", "#a16207", "#92400e", "#78350f"]
-category_tiles = cats_raw[:6]  # primeras 6
-
-# Session state para categoría elegida desde tile
-if "ventas_cat_sel" not in st.session_state:
-    st.session_state["ventas_cat_sel"] = "Todas"
-
-st.title("Ventas y predicciones")
-st.caption(f"{len(df):,} filas | Elige una categoría para filtrar o usa el menú lateral")
-
-# ----- Grid de categorías tipo tienda (como imagen) -----
-st.markdown("#### Ver predicciones por categoría")
-row1 = st.columns(3)
-row2 = st.columns(3)
-for i, cat in enumerate(category_tiles):
-    col = row1[i % 3] if i < 3 else row2[i % 3]
-    with col:
-        color = CAT_TILE_COLORS[i % len(CAT_TILE_COLORS)]
-        short = cat[:22] + "…" if len(cat) > 22 else cat
-        st.markdown(
-            f"""
-            <div style="
-                background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(22,33,62,0.95) 100%);
-                border: 1px solid {color};
-                border-radius: 12px;
-                padding: 1.25rem;
-                text-align: center;
-                margin-bottom: 0.5rem;
-            ">
-                <div style="font-family: 'Playfair Display', serif; font-size: 1.2rem; font-weight: 700; color: #fff;">{short}</div>
-                <div style="font-size: 0.8rem; color: {color}; margin-top: 0.35rem;">Ver predicciones</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-        if st.button("Ver", key=f"tile_{i}", type="primary"):
-            st.session_state["ventas_cat_sel"] = cat
-            st.rerun()
-
-st.divider()
-
-# Filtros en sidebar (por defecto la categoría del tile si se eligió)
-with st.sidebar:
-    st.subheader("Filtros")
-    categorias = ["Todas"] + cats_raw
-    cat_sel = st.selectbox(
-        "Categoría",
-        categorias,
-        index=categorias.index(st.session_state["ventas_cat_sel"]) if st.session_state["ventas_cat_sel"] in categorias else 0,
-    )
-    if cat_sel != st.session_state["ventas_cat_sel"]:
-        st.session_state["ventas_cat_sel"] = cat_sel
-    rango = None
+    else:
+        return None
     if "fecha" in df.columns:
-        min_f = df["fecha"].min()
-        max_f = df["fecha"].max()
-        rango = st.date_input("Rango fechas", value=(min_f, max_f), min_value=min_f, max_value=max_f)
+        df["fecha"] = pd.to_datetime(df["fecha"])
+    return df
 
-mask = pd.Series(True, index=df.index)
-if "categoria" in df.columns and cat_sel != "Todas":
-    mask &= df["categoria"].astype(str) == cat_sel
-if "fecha" in df.columns and rango is not None and len(rango) == 2:
-    mask &= (df["fecha"].dt.date >= rango[0]) & (df["fecha"].dt.date <= rango[1])
-df_f = df.loc[mask]
 
-# Tema Plotly oscuro (tienda de licores)
+def is_contaminated_category_file(df: pd.DataFrame) -> bool:
+    if "categoria" not in df.columns:
+        return True
+    looks_store = {"store_id", "store_abc"}.issubset(df.columns)
+    cat_values = df["categoria"].dropna().astype(str)
+    tier_like = len(cat_values) > 0 and cat_values.str.startswith("Tienda tier").all()
+    return bool(looks_store and tier_like)
+
+
+def draw_tiles(values: list[str], state_key: str, prefix_key: str) -> None:
+    if not values:
+        st.info("No hay valores para mostrar en tarjetas.")
+        return
+    colors = ["#e67e22", "#c2410c", "#b45309", "#a16207", "#92400e", "#78350f"]
+    row1 = st.columns(3)
+    row2 = st.columns(3)
+    for i, val in enumerate(values[:6]):
+        col = row1[i % 3] if i < 3 else row2[i % 3]
+        with col:
+            color = colors[i % len(colors)]
+            short = val[:26] + "..." if len(val) > 26 else val
+            st.markdown(
+                f"""
+                <div style="
+                    background: linear-gradient(180deg, rgba(0,0,0,0.35) 0%, rgba(22,33,62,0.95) 100%);
+                    border: 1px solid {color};
+                    border-radius: 12px;
+                    padding: 1.1rem;
+                    text-align: center;
+                    margin-bottom: 0.5rem;">
+                    <div style="font-family: 'Playfair Display', serif; font-size: 1.05rem; font-weight: 700; color: #fff;">{short}</div>
+                    <div style="font-size: 0.8rem; color: {color}; margin-top: 0.35rem;">Ver predicciones</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+            if st.button("Ver", key=f"{prefix_key}_{i}", type="primary"):
+                st.session_state[state_key] = val
+                st.rerun()
+
+
 PLOTLY_TEMPLATE = dict(
     layout=dict(
         paper_bgcolor="rgba(22, 33, 62, 0.9)",
@@ -131,69 +87,154 @@ PLOTLY_TEMPLATE = dict(
     )
 )
 
+df_cat = load_predictions(str(PREDICTIONS_PARQUET), str(PREDICTIONS_CSV))
+df_store = load_predictions(str(PREDICTIONS_BY_STORE_PARQUET))
 
-@st.fragment(run_every=None)
-def _tab_serie_temporal():
-    if "fecha" not in df_f.columns or len(df_f) == 0:
-        st.info("No hay columna de fecha para graficar.")
-        return
-    agg = df_f.groupby("fecha").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=agg["fecha"], y=agg[actual_col], name="Actual",
-            line=dict(color="#94a3b8", width=2), fill="tozeroy", fillcolor="rgba(148,163,184,0.15)",
+st.title("Ventas y predicciones")
+
+if "ventas_cat_sel" not in st.session_state:
+    st.session_state["ventas_cat_sel"] = "Todas"
+if "ventas_store_sel" not in st.session_state:
+    st.session_state["ventas_store_sel"] = "Todas"
+
+# Sidebar: filtros separados por bloque
+with st.sidebar:
+    st.subheader("Filtros categorías producto")
+    categorias = ["Todas"]
+    cat_min = cat_max = None
+    if df_cat is not None and not df_cat.empty and "categoria" in df_cat.columns:
+        categorias = ["Todas"] + sorted(df_cat["categoria"].dropna().astype(str).unique().tolist())
+    cat_sel = st.selectbox(
+        "Categoría",
+        categorias,
+        index=categorias.index(st.session_state["ventas_cat_sel"]) if st.session_state["ventas_cat_sel"] in categorias else 0,
+    )
+    st.session_state["ventas_cat_sel"] = cat_sel
+    cat_range = None
+    if df_cat is not None and not df_cat.empty and "fecha" in df_cat.columns:
+        cat_min = df_cat["fecha"].min()
+        cat_max = df_cat["fecha"].max()
+        cat_range = st.date_input("Rango fechas (categorías)", value=(cat_min, cat_max), min_value=cat_min, max_value=cat_max)
+
+    st.divider()
+    st.subheader("Filtros tiendas")
+    tiers = ["Todas"]
+    stores = ["Todas"]
+    if df_store is not None and not df_store.empty:
+        if "store_abc" in df_store.columns:
+            tiers += sorted(df_store["store_abc"].dropna().astype(str).unique().tolist())
+        if "store_id" in df_store.columns:
+            stores += sorted(df_store["store_id"].dropna().astype(str).unique().tolist())
+    tier_sel = st.selectbox("Tier tienda", tiers, index=0)
+    store_sel = st.selectbox("Tienda", stores, index=stores.index(st.session_state["ventas_store_sel"]) if st.session_state["ventas_store_sel"] in stores else 0)
+    st.session_state["ventas_store_sel"] = store_sel
+    store_range = None
+    if df_store is not None and not df_store.empty and "fecha" in df_store.columns:
+        st_min = df_store["fecha"].min()
+        st_max = df_store["fecha"].max()
+        store_range = st.date_input("Rango fechas (tiendas)", value=(st_min, st_max), min_value=st_min, max_value=st_max)
+
+# BLOQUE A: categorías de producto
+st.markdown("### Predicciones por categoría de producto")
+if df_cat is None or df_cat.empty:
+    st.warning("No existe el archivo de predicciones por categoría de producto.")
+else:
+    if is_contaminated_category_file(df_cat):
+        st.error(
+            "El archivo de categorías está contaminado con datos de tiendas. "
+            "Debes regenerar `data/predictions/forecasting_predictions.parquet` desde el bloque de categorías del notebook."
         )
-    )
-    fig.add_trace(
-        go.Scatter(
-            x=agg["fecha"], y=agg[pred_col], name="Predicho",
-            line=dict(color=ACCENT, width=2.5), fill="tozeroy", fillcolor="rgba(230,126,34,0.2)",
+    else:
+        actual_col = "actual" if "actual" in df_cat.columns else "ventas"
+        pred_col = "pred_ensemble" if "pred_ensemble" in df_cat.columns else "predicho"
+        cats_raw = sorted(df_cat["categoria"].dropna().astype(str).unique().tolist()) if "categoria" in df_cat.columns else []
+        st.caption(f"{len(df_cat):,} filas | Categorías únicas: {len(cats_raw)}")
+        draw_tiles(cats_raw, "ventas_cat_sel", "tile_cat")
+
+        mask_cat = pd.Series(True, index=df_cat.index)
+        if cat_sel != "Todas" and "categoria" in df_cat.columns:
+            mask_cat &= df_cat["categoria"].astype(str) == cat_sel
+        if cat_range is not None and len(cat_range) == 2 and "fecha" in df_cat.columns:
+            mask_cat &= (df_cat["fecha"].dt.date >= cat_range[0]) & (df_cat["fecha"].dt.date <= cat_range[1])
+        df_cat_f = df_cat.loc[mask_cat]
+
+        if len(df_cat_f) == 0:
+            st.info("No hay datos para el filtro de categorías seleccionado.")
+        else:
+            t1, t2, t3 = st.tabs(["Serie temporal", "Por categoría", "Tabla"])
+            with t1:
+                agg = df_cat_f.groupby("fecha").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[actual_col], name="Actual", line=dict(color="#94a3b8", width=2)))
+                fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[pred_col], name="Predicho", line=dict(color=ACCENT, width=2.5)))
+                fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho (categorías)", height=390)
+                st.plotly_chart(fig, use_container_width=True)
+            with t2:
+                bar = df_cat_f.groupby("categoria").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=bar["categoria"], y=bar[actual_col], name="Actual", marker_color="#94a3b8"))
+                fig.add_trace(go.Bar(x=bar["categoria"], y=bar[pred_col], name="Predicho", marker_color=ACCENT))
+                fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho por categoría", barmode="group", height=420, xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+            with t3:
+                st.dataframe(df_cat_f, use_container_width=True)
+
+st.divider()
+
+# BLOQUE B: tiendas
+st.markdown("### Predicciones por tienda")
+if df_store is None or df_store.empty:
+    st.warning("No existe el archivo de predicciones por tienda.")
+else:
+    actual_store_col = "actual" if "actual" in df_store.columns else "ventas"
+    pred_store_col = "pred_ensemble" if "pred_ensemble" in df_store.columns else "predicho"
+
+    mask_store = pd.Series(True, index=df_store.index)
+    if tier_sel != "Todas" and "store_abc" in df_store.columns:
+        mask_store &= df_store["store_abc"].astype(str) == tier_sel
+    if store_sel != "Todas" and "store_id" in df_store.columns:
+        mask_store &= df_store["store_id"].astype(str) == store_sel
+    if store_range is not None and len(store_range) == 2 and "fecha" in df_store.columns:
+        mask_store &= (df_store["fecha"].dt.date >= store_range[0]) & (df_store["fecha"].dt.date <= store_range[1])
+    df_store_f = df_store.loc[mask_store]
+
+    if len(df_store_f) == 0:
+        st.info("No hay datos para el filtro de tiendas seleccionado.")
+    else:
+        top_stores = (
+            df_store_f.groupby("store_id")[actual_store_col]
+            .sum()
+            .sort_values(ascending=False)
+            .head(6)
+            .index.astype(str)
+            .tolist()
+            if "store_id" in df_store_f.columns
+            else []
         )
-    )
-    fig.update_layout(
-        **PLOTLY_TEMPLATE["layout"],
-        title="Actual vs predicho (serie temporal)",
-        height=400,
-        margin=dict(t=50, b=50, l=50, r=30),
-    )
-    st.plotly_chart(fig, use_container_width=True)
+        st.caption(f"{len(df_store_f):,} filas filtradas | Tiendas visibles: {df_store_f['store_id'].nunique() if 'store_id' in df_store_f.columns else 0}")
+        draw_tiles(top_stores, "ventas_store_sel", "tile_store")
 
-
-@st.fragment(run_every=None)
-def _tab_por_categoria():
-    if "categoria" not in df_f.columns or len(df_f) == 0:
-        st.info("No hay columna de categoría para agrupar.")
-        return
-    por_cat = df_f.groupby("categoria").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
-    fig = go.Figure()
-    fig.add_trace(
-        go.Bar(x=por_cat["categoria"], y=por_cat[actual_col], name="Actual", marker_color="#94a3b8")
-    )
-    fig.add_trace(
-        go.Bar(x=por_cat["categoria"], y=por_cat[pred_col], name="Predicho", marker_color=ACCENT)
-    )
-    fig.update_layout(
-        **PLOTLY_TEMPLATE["layout"],
-        title="Actual vs predicho por categoría",
-        barmode="group",
-        height=400,
-        margin=dict(t=50, b=80, l=50, r=30),
-        xaxis_tickangle=-45,
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-@st.fragment(run_every=None)
-def _tab_tabla_descarga():
-    st.dataframe(df_f, use_container_width=True)
-    csv = df_f.to_csv(index=False)
-    st.download_button("Descargar CSV", data=csv, file_name="forecasting_predictions_filtered.csv", mime="text/csv")
-
-tab_ts, tab_cat, tab_tab = st.tabs(["Actual vs predicho (serie temporal)", "Por categoría", "Tabla y descarga"])
-with tab_ts:
-    _tab_serie_temporal()
-with tab_cat:
-    _tab_por_categoria()
-with tab_tab:
-    _tab_tabla_descarga()
+        t1, t2, t3 = st.tabs(["Serie temporal tiendas", "Por tienda", "Tabla tiendas"])
+        with t1:
+            agg = df_store_f.groupby("fecha").agg({actual_store_col: "sum", pred_store_col: "sum"}).reset_index()
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[actual_store_col], name="Actual", line=dict(color="#94a3b8", width=2)))
+            fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[pred_store_col], name="Predicho", line=dict(color=ACCENT, width=2.5)))
+            fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho (tiendas)", height=390)
+            st.plotly_chart(fig, use_container_width=True)
+        with t2:
+            if "store_id" in df_store_f.columns:
+                by_store = (
+                    df_store_f.groupby("store_id").agg({actual_store_col: "sum", pred_store_col: "sum"}).reset_index()
+                    .sort_values(actual_store_col, ascending=False)
+                    .head(20)
+                )
+                fig = go.Figure()
+                fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[actual_store_col], name="Actual", marker_color="#94a3b8"))
+                fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[pred_store_col], name="Predicho", marker_color=ACCENT))
+                fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Top 20 tiendas por ventas", barmode="group", height=420, xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("No hay columna `store_id` en el archivo de tiendas.")
+        with t3:
+            st.dataframe(df_store_f, use_container_width=True)

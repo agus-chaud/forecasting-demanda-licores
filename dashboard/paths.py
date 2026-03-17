@@ -11,5 +11,10 @@ else:
 
 MANIFEST_PATH = BASE / "artifacts" / "modeling" / "experiment_manifest_latest.json"
 HISTORY_PATH = BASE / "artifacts" / "modeling" / "experiments_history.csv"
+
+# Predicciones agregadas por categoría de producto (vista principal del dashboard)
 PREDICTIONS_PARQUET = BASE / "data" / "predictions" / "forecasting_predictions.parquet"
 PREDICTIONS_CSV = BASE / "data" / "predictions" / "forecasting_predictions.csv"
+
+# Predicciones por tienda (para vista secundaria agrupada por tier/store_abc)
+PREDICTIONS_BY_STORE_PARQUET = BASE / "data" / "predictions" / "forecasting_predictions_by_store.parquet"
