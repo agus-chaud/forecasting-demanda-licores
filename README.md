@@ -12,7 +12,8 @@
 - Pronosticar ventas diarias por categoría y por tienda
 - Capturar estacionalidad semanal (patrones por día de la semana)
 - Evaluar el rendimiento con métricas MAPE y MAE
-- Reutilizar features preparados para futuros modelos (XGBoost/LightGBM)
+- Generar **forecast futuro** (más allá de los datos históricos) para planificación real de inventario
+- Dashboard interactivo con backtesting y predicciones hacia adelante
 
 ---
 
@@ -32,10 +33,13 @@
 Iowa_Liquor_Sales.csv
     → DuckDB (raw_ventas)
     → Agregación: ventas_categoria, ventas_tienda, ventas_diarias
-    → Feature engineering (LAG, AVG OVER, dia_semana, mes)
-    → Export Parquet: data/ventas_por_categoria.parquet, ventas_por_tienda.parquet, features_ventas_diarias.parquet
-    → Split temporal (cutoff)
-    → SARIMA por grupo → predicciones + evaluación
+    → Feature engineering (LAG, AVG OVER, dia_semana, mes, ewm, volatilidad, festivos Iowa)
+    → Export Parquet: data/ventas_por_categoria_2/, ventas_por_tienda_2/
+    → Split temporal (cutoff = fecha_max - 30 días)
+    → SARIMA por grupo → predicciones + evaluación (backtesting)
+    → XGBoost / LightGBM global → ensemble optimizado por WMAPE
+    → Fase 9: Recursive multi-step forecasting → predicciones futuras (30 días más allá de fecha_max)
+    → Dashboard Streamlit (4 páginas): Resumen | Categorías | Tiendas | Forecast Futuro
 ```
 
 ### Decisiones técnicas
@@ -64,10 +68,13 @@ En `analisis.ipynb` existe un **Agente de Calidad** (5 dimensiones: Completitud,
 - **Diagnóstico estadístico**: Test ADF, ACF/PACF, descomposición estacional para las top 3 categorías.
 - **Heatmap de Tiendas**: Extracción robusta de coordenadas (con `duckdb` y parsing de ubicación para Iowa) para visualización de densidad.
 - **Pipeline SARIMA**: `auto_arima` para búsqueda de parámetros; entrenamiento paralelo por categoría y tienda con `joblib`.
-- **Pipeline XGBoost/LightGBM**: Modelo global con 13 features y label encoding de categoría.
-- **Ensemble**: Promedio ponderado XGBoost + LightGBM optimizado por WMAPE.
+- **Pipeline XGBoost/LightGBM**: Modelo global con ~28 features (lags, rolling, EWM, volatilidad, festivos Iowa, target encoding) y label encoding de categoría.
+- **Ensemble**: Promedio ponderado XGBoost + LightGBM optimizado por WMAPE (peso guardado en `artifacts/modeling/forecasting_ensemble.json`).
 - **Walk-forward validation**: 3 folds temporales para medir robustez.
 - **Evaluación**: WMAPE (métrica principal), MAPE, MAE, RMSE. Tabla comparativa de 4 modelos.
+- **Fase 9 — Forecast Futuro**: Recursive multi-step forecasting para generar predicciones de los próximos 30 días más allá de `fecha_max`. Target encoding persistido en `artifacts/modeling/target_encoding_maps.json`. Outputs: `forecasting_future_categories.parquet` y `forecasting_future_stores.parquet`.
+- **Dashboard Streamlit** (4 páginas): Resumen del modelo, Predicciones por categoría, Predicciones por tienda, **Forecast Futuro** (horizonte 7/14/30 días, banda CI q10-q90, ranking, descarga CSV).
+- **Tests de integración**: 17 casos en `tests/test_forecast_page.py` (fixtures sintéticos, sin dependencia del notebook).
 - **Ejercicios SQL**: 11 ejercicios (E1.1-E1.8 + E2.1-E2.3) cubriendo CTEs, window functions, RANK, ROW_NUMBER, QUALIFY, NTILE, ROLLUP, recursive CTE, EXPLAIN.
 
 ### Visualizaciones creadas
@@ -109,7 +116,9 @@ En `analisis.ipynb` existe un **Agente de Calidad** (5 dimensiones: Completitud,
 - Integrar DuckDB en `analisis.ipynb` *después* del agente de calidad, usando `validated_df` como input.
 - Considerar SARIMAX con mes como exógena para estacionalidad mensual.
 - Hyperparameter tuning con `TimeSeriesSplit` de sklearn para XGBoost/LightGBM.
-- Dashboard interactivo para monitoreo de predicciones.
+- Guardar modelos quantile (q10/q90) a disco para reemplazar el CI sintético ±20% del forecast futuro.
+- Guardar el ensemble weight de tiendas a `forecasting_ensemble_store.json` (actualmente fijo en 0.5).
+- Integrar SARIMA en el forecast futuro una vez que `pmdarima` esté disponible en el entorno.
 - Ejecutar pipeline completo con `SAMPLE_ROWS=None` (27M+ filas) y documentar métricas finales.
 
 ---
@@ -130,27 +139,48 @@ En `analisis.ipynb` existe un **Agente de Calidad** (5 dimensiones: Completitud,
 ```
 Forecasing Licores/
 ├── README.md
-├── DECISIONS.md                   # Registro de decisiones técnicas con justificaciones
+├── DECISIONS.md                   # Registro de decisiones técnicas (D01-D18)
 ├── docs/
 │   ├── GUIA_SQL_FORECASTING_LICORES.md   # Guía SQL: glosario, ejercicios, cheat sheet
 │   └── ejemplos_sql/                      # Scripts SQL por ejercicio (E1.1-E2.3)
 ├── requirements.txt
-├── Iowa_Liquor_Sales.csv          # Dataset fuente (licencias Iowa)
-├── forecasting-licores.ipynb      # Pipeline completo: SQL + diagnóstico + SARIMA + XGBoost + LightGBM
-├── analisis.ipynb                 # EDA, Agente de Calidad, outliers
+├── Iowa_Liquor_Sales.csv          # Dataset fuente (licencias Iowa, ~3.3 GB)
+├── forecasting-licores.ipynb      # Pipeline completo (Fases 1-9): SQL + SARIMA + XGBoost + LightGBM + Forecast Futuro
+├── analisis-calidad.ipynb         # DuckDB → Parquets particionados (ventas_por_categoria_2, ventas_por_tienda_2)
 ├── data/
-│   ├── ventas_por_categoria.parquet
-│   ├── ventas_por_tienda.parquet
-│   └── features_ventas_diarias.parquet
+│   ├── ventas_por_categoria_2/    # Parquet particionado (input del notebook de forecasting)
+│   ├── ventas_por_tienda_2/       # Parquet particionado
+│   ├── modelos_sarima/            # Modelos SARIMA serializados (top 4 categorías)
+│   └── predictions/
+│       ├── forecasting_predictions.parquet           # Backtesting por categoría (30 días test)
+│       ├── forecasting_predictions_by_store.parquet  # Backtesting por tienda
+│       ├── forecasting_future_categories.parquet     # Forecast futuro por categoría (Fase 9)
+│       └── forecasting_future_stores.parquet         # Forecast futuro por tienda (Fase 9)
 ├── artifacts/
-│   └── quality/
-│       └── quality_manifest.json  # Output del Agente de Calidad (analisis.ipynb)
+│   └── modeling/
+│       ├── forecasting_xgb_global.joblib             # Modelo XGBoost categorías
+│       ├── forecasting_lgb_global.joblib             # Modelo LightGBM categorías
+│       ├── forecasting_xgb_store_global.joblib       # Modelo XGBoost tiendas (Tweedie)
+│       ├── forecasting_lgb_store_global.joblib       # Modelo LightGBM tiendas (Tweedie)
+│       ├── forecasting_ensemble.json                 # Peso ensemble categorías (best_w=0.65)
+│       ├── target_encoding_maps.json                 # TE maps (Fase 9, historia completa)
+│       └── experiment_manifest_latest.json           # Métricas del último run
+├── dashboard/
+│   ├── app.py                     # Entrada Streamlit (login → redirect)
+│   ├── auth.py                    # Autenticación simple
+│   ├── paths.py                   # Rutas base (independiente del cwd)
+│   ├── theme.py                   # Colores, CSS, helpers visuales
+│   └── pages/
+│       ├── 1_Resumen_modelo.py        # Métricas del modelo, historial de runs
+│       ├── 2_Predicciones_categorias.py  # Backtesting por categoría
+│       ├── 3_Predicciones_tiendas.py    # Backtesting por tienda + mapa
+│       ├── 4_Forecast_Futuro.py         # Forecast futuro (horizonte 7/14/30 días)
+│       └── _utils_forecast.py           # Helper load_future_parquet
+├── tests/
+│   └── test_forecast_page.py      # 17 integration tests (smart-testing, fixtures sintéticos)
 ├── .cursor/
 │   ├── mcp.json                   # Config MCP: engram para memoria persistente
-│   ├── plans/                     # Planes de desarrollo
 │   └── rules/                     # Reglas (calidad, EDA, engram-memory, etc.)
-├── skills/
-│   └── forecasting-time-series-data/  # Skill de apoyo para forecasting
 └── engram/                        # Plugin/memoria (no parte del core del forecasting)
 ```
 
@@ -158,12 +188,13 @@ Forecasing Licores/
 
 | Archivo | Descripción |
 |---------|-------------|
-| `forecasting-licores.ipynb` | Pipeline completo: ejercicios SQL (E1.1-E2.3), diagnóstico estadístico, SARIMA, XGBoost, LightGBM, ensemble, walk-forward validation. |
-| `docs/GUIA_SQL_FORECASTING_LICORES.md` | Guía de funcionalidades SQL: glosario de conceptos, ejercicios de replicación, cheat sheet y orden de estudio. Permite replicar las queries sin asistencia de IA. |
-| `DECISIONS.md` | Registro de 10 decisiones técnicas con justificaciones y alternativas consideradas. |
-| `analisis.ipynb` | Carga CSV, Agente de Calidad (5 dimensiones), validación, análisis de outliers (sus_promos, sus_errores). |
-| `Iowa_Liquor_Sales.csv` | Dataset de ventas de licores del Estado de Iowa. |
-| `data/*.parquet` | Agregaciones y features exportados para reutilización. |
+| `forecasting-licores.ipynb` | Pipeline completo (Fases 1-9): ejercicios SQL, SARIMA, XGBoost, LightGBM, ensemble, walk-forward validation, **Fase 9 recursive forecast futuro**. |
+| `analisis-calidad.ipynb` | DuckDB → Parquets particionados. Calidad de datos, limpieza, exportación. |
+| `dashboard/pages/4_Forecast_Futuro.py` | Página de forecast hacia adelante: gráfico 3 zonas (backtesting + vline + zona futuro), CI q10-q90, ranking, descarga CSV. |
+| `tests/test_forecast_page.py` | 17 integration tests con fixtures sintéticos. Validan comportamiento del dashboard sin depender del notebook. |
+| `DECISIONS.md` | Registro de 18 decisiones técnicas con justificaciones y alternativas consideradas. |
+| `artifacts/modeling/target_encoding_maps.json` | Target encoding maps persistidos (Fase 9). Evita recargar el CSV de 3.3 GB para inferencia. |
+| `data/predictions/forecasting_future_*.parquet` | Forecast futuro por categoría y tienda (generado por Fase 9). |
 
 ---
 
@@ -272,19 +303,35 @@ pip install -r requirements.txt
 
 Coloca `Iowa_Liquor_Sales.csv` en la raíz del proyecto. Si no dispones del archivo, descárgalo desde la fuente oficial de datos de Iowa (licencias de licores).
 
-### 3. Pipeline de forecasting (`forecasting_licores.ipynb`)
+### 3. Pipeline de forecasting (`forecasting-licores.ipynb`)
 
 1. Abre el notebook en Jupyter o VS Code.
-2. Ejecuta las celdas en orden:
-   - Celdas 1–2: Imports y carga del CSV con DuckDB.
-   - Celdas 3–4: Agregación por categoría y tienda.
-   - Celda 6: Feature engineering (ventanas SQL).
-   - Celdas 8: Export a Parquet.
-   - Celda 10: Split temporal (genera `cutoff`, `train_*`, `test_*`).
-   - Celdas 12–16: SARIMA (funciones, entrenamiento, evaluación, visualización).
-3. Opcional: ajusta `SAMPLE_ROWS` en la celda 1 (`None` para usar el CSV completo) o `MIN_DAYS` en la celda 12.
+2. Ejecuta las celdas en orden — el notebook tiene caching de modelos con `joblib`, por lo que las re-ejecuciones son rápidas si los artefactos ya existen.
+3. **Para generar el forecast futuro (Fase 9)**, ejecuta las celdas al final del notebook:
+   - **Celda 9.1** — Setup: define `FUTURE_HORIZON = 30` y `future_dates_cat`.
+   - **Celda 9.2** — Target encoding: carga desde cache si existe `target_encoding_maps.json`; si no existe, recalcula y guarda.
+   - **Celda 9.3** — Forecast categorías: loop recursivo, genera `forecasting_future_categories.parquet`.
+   - **Celda 9.4** — Forecast tiendas: loop recursivo, genera `forecasting_future_stores.parquet`.
+   - **Celda 9.5** — Tests de comportamiento: 8 assertions automáticas que validan el output.
 
-**Nota**: El entrenamiento SARIMA por tienda puede tardar varios minutos (≈1500 tiendas). Las celdas instalan `duckdb` y `statsmodels` vía pip si no están instalados.
+**Nota**: El loop de tiendas puede tardar varios minutos (≈170 tiendas × 30 días × features). Si faltan modelos globales en `artifacts/modeling/`, el notebook te pide ejecutar `forecasting-licores_respaldo_entrenamiento.ipynb` antes de llegar a Fase 9.
+
+### 4. Dashboard
+
+```bash
+streamlit run dashboard/app.py
+```
+
+- **Página 4 — Forecast Futuro** requiere que la Fase 9 del notebook haya corrido y los parquets existan en `data/predictions/`.
+- Si los parquets no existen, la página muestra un warning en lugar de fallar.
+
+### 5. Tests
+
+```bash
+pytest tests/test_forecast_page.py -v
+```
+
+17 tests de integración que validan el comportamiento del dashboard de forecast futuro. No requieren correr el notebook (usan fixtures sintéticos).
 
 ### 4. Análisis y calidad (`analisis.ipynb`)
 

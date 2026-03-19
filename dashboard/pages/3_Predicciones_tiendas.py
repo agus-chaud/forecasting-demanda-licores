@@ -289,3 +289,6 @@ else:
                         ))
                 except Exception as e:
                     st.error(f"Error procesando el mapa: {e}")
+
+st.divider()
+st.info("¿Querés predicciones para días futuros? Consultá la página **Forecast Futuro** en el menú lateral.")

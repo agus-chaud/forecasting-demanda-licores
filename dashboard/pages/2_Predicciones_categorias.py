@@ -154,3 +154,6 @@ else:
                 fig.add_trace(go.Bar(x=bar["categoria"], y=bar[pred_col], name="Predicho", marker_color=ACCENT))
                 fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho por categoría", barmode="group", height=420, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
+
+st.divider()
+st.info("¿Querés predicciones para días futuros? Consultá la página **Forecast Futuro** en el menú lateral.")

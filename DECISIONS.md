@@ -137,7 +137,7 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 ## D11: Refactor de feature engineering y cache de modelos
 
 **Fecha**: 2026-03-06
-**Decisión**: Simplificar el pipeline de feature engineering y entrenamiento de modelos globales (XGBoost, SARIMA) trabajando sólo con pandas y cacheando los modelos entrenados por serie/categoría.
+**Decisión**: Simplificar el pipeline de feature engineering y entrenamiento de modelos globales (XGBoost, SARIMA) trabajando sólo con pandas y cacheando los modelos entrenados por serie/categoría, separando el entrenamiento pesado en un notebook de respaldo (`forecasting-licores_respaldo_entrenamiento.ipynb`) para mantener el notebook principal en modo cache-first (si faltan artefactos, guía a ejecutar el respaldo).
 **Alternativas consideradas**:
 - Mantener el feature engineering repartido entre SQL/DuckDB y pandas: mayor complejidad y más puntos de fallo
 - No cachear modelos: reentrenar todo en cada ejecución del notebook, con tiempos de corrida altos
@@ -145,7 +145,7 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 - Centralizar el feature engineering (lags, medias móviles, features de calendario, flags de cierre, etc.) en un único pipeline en pandas hace el código más legible, testeable y fácil de depurar.
 - Eliminar dependencia de DuckDB en la etapa de modelado reduce fricción para correr el notebook en otros entornos (por ejemplo, sin motor SQL instalado).
 - Cachear los modelos entrenados (por ejemplo con `joblib`) por clave de serie/categoría permite reutilizar resultados entre corridas, acelerar el flujo iterativo y evitar sobrecostos de CPU si sólo cambian algunos parámetros o el horizonte de predicción.
-**Impacto**: El notebook de forecasting es más reproducible y rápido de ejecutar; además, se puede inspeccionar y reutilizar fácilmente el conjunto de modelos entrenados para análisis posteriores o futuros despliegues.
+**Impacto**: El notebook de forecasting es más reproducible y rápido de ejecutar; además, se puede inspeccionar y reutilizar fácilmente el conjunto de modelos entrenados para análisis posteriores o futuros despliegues. El entrenamiento completo queda “amarrado” al respaldo, y el principal hace carga desde disco para llegar a Fase 9 con pocas celdas.
 
 ---
 
@@ -207,8 +207,50 @@ Cada decisión relevante del proyecto se documenta aquí con su justificación y
 **Alternativas consideradas**:
 - Plotly/Folium: Folium es lento para muchos scatter points; Plotly Express es funcional, pero PyDeck ofrece capas progresivas (pitch) y excelente rendimiento WebGL con miles de puntos geográficos.
 - Parsear coordenadas en Pandas cargando el dataset entero: Consume demasiada RAM (dataset ~3.5GB) y puede causar OOM en entornos pequeños.
-**Justificación**: 
-- Reusamos DuckDB para extraer únicamente `Store Number` y `Store Location` agregados, completando la tarea iterativa en segundos. 
+**Justificación**:
+- Reusamos DuckDB para extraer únicamente `Store Number` y `Store Location` agregados, completando la tarea iterativa en segundos.
 - Se implementó una función de parsing inteligente que soporta tanto el formato WKT `POINT (LON LAT)` como tuplas `(LAT, LON)`, validando los datos contra las fronteras geográficas de Iowa (Patrón AAA bajo la skill `smart-testing`).
 - PyDeck se acopla de manera nativa con Streamlit (`view_state` y `ScatterplotLayer`), calculando el radio del punto dinámicamente y aplicando la variable global del color `ACCENT`.
 **Impacto**: Análisis espacial intuitivo e interactivo integrado en el dashboard de ventas, permitiendo detectar visualmente focos calientes de demanda sin tiempos de recarga perceptibles.
+
+---
+
+## D16: Recursive Multi-Step Forecasting para predicción futura (Fase 9)
+
+**Fecha**: 2026-03-17
+**Decisión**: Implementar recursive multi-step forecasting para XGBoost/LightGBM, donde cada predicción del día `t` alimenta los lags del día `t+1`, generando un horizonte de 30 días más allá de `fecha_max`.
+**Alternativas consideradas**:
+- **Direct multi-step**: entrenar N modelos separados, uno por cada paso de horizonte. No aplicable sin re-entrenar; requiere N veces más tiempo y almacenamiento.
+- **Solo SARIMA**: SARIMA hace multi-step nativo vía `forecast(steps=N)`, pero los modelos guardados requieren `pmdarima` que no siempre está disponible, y solo cubren las top 4 categorías.
+- **Congelar las predicciones en el período de test**: seguir mostrando únicamente backtesting. Descartado por ser inútil para decisiones de negocio.
+**Justificación**:
+- Los modelos XGBoost/LightGBM ya entrenados son single-step regressors. El único camino para multi-step sin reentrenamiento es recursivo.
+- Lag features críticos: `lag_1` (day 2+) y `lag_7` (day 8+) requieren el buffer de predicciones. `lag_52` (52 días) y `lag_365` siempre disponibles desde la historia real (datos 2014).
+- El estado EWM (`ewm_7`, `ewm_28`) se continúa recursivamente: `ewm_t = α·pred_t + (1-α)·ewm_{t-1}`. Esto es correcto porque `adjust=False` en pandas es justamente esa fórmula recurrente.
+- Features de intermitencia de tiendas (`days_since_purchase`, `last_nonzero_amount`, etc.) se fijan en el último valor real conocido: para un horizonte de 30 días, estos no cambian significativamente.
+- CI sintético ±20% como fallback porque los modelos quantile (q10/q90) no están serializados en disco.
+**Impacto**: El dashboard pasa de ser un espejo retrovisor (backtesting) a una herramienta de planificación real. El notebook genera `forecasting_future_categories.parquet` y `forecasting_future_stores.parquet`.
+
+---
+
+## D17: Target Encoding persistido en disco (artifacts/modeling/target_encoding_maps.json)
+
+**Fecha**: 2026-03-17
+**Decisión**: En Fase 9, aplicar target encoding de forma cache-first: si `artifacts/modeling/target_encoding_maps.json` existe, cargarlo desde disco; si no existe, recalcular usando la historia completa hasta `fecha_max` (no solo el train window) y persistirlo en `artifacts/modeling/target_encoding_maps.json`.
+**Alternativas consideradas**:
+- Recalcular TE siempre: aumenta tiempo en ejecuciones repetidas porque fuerza a leer y agregar el dataset completo.
+- Guardar el TE del train (calculado con datos ≤ cutoff): más conservador pero sub-óptimo para forecast futuro (desperdicia el período de test como información).
+**Justificación**: Para forecasting futuro no existe el riesgo de data leakage que justificaba el TE solo-train durante el backtesting. Usando toda la historia disponible el TE captura mejor el nivel real de demanda de cada categoría/tienda. Persistirlo en JSON evita recargar el dataset de 3.3 GB para inferencia incremental.
+**Impacto**: `target_encoding_maps.json` es reutilizable por el dashboard, por pipelines de re-inferencia y por futuros notebooks sin necesidad de DuckDB ni del CSV original.
+
+---
+
+## D18: Página "Forecast Futuro" en el dashboard con 3 zonas visuales
+
+**Fecha**: 2026-03-17
+**Decisión**: Nueva página `4_Forecast_Futuro.py` con un gráfico de 3 zonas: backtesting (gris punteado) | vline "Último dato real" | zona de forecast (color ACCENT + banda CI q10-q90 con `fill='tonexty'`).
+**Alternativas consideradas**:
+- Agregar el forecast futuro a las páginas existentes (2 y 3): crea confusión entre predicciones históricas evaluadas vs. predicciones hacia adelante sin ground truth.
+- Solo mostrar el forecast sin contexto histórico: el usuario no puede juzgar la credibilidad del modelo sin ver cómo funcionó en el pasado.
+**Justificación**: Separar en una página dedicada mantiene la claridad conceptual: páginas 2 y 3 = evaluación del modelo (tiene actual), página 4 = herramienta de negocio (no tiene actual). El contexto de backtesting en el mismo gráfico permite al usuario calibrar confianza en el forecast sin cambiar de página. `add_vrect` + `add_vline` en Plotly da la separación visual sin código adicional.
+**Impacto**: Dashboard pasa a tener valor operacional real. Tests de integración con 17 casos validan comportamiento desde la perspectiva del usuario (fixtures sintéticos, sin depender de los parquets de producción).
