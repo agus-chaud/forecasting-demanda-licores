@@ -12,7 +12,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from auth import check_auth
-from paths import PREDICTIONS_BY_STORE_PARQUET, PREDICTIONS_CSV, PREDICTIONS_PARQUET
+import paths as p
 from theme import ACCENT, inject_theme
 
 st.set_page_config(page_title="Ventas y predicciones | Forecasting Licores", page_icon="📈", layout="wide")
@@ -76,6 +76,22 @@ def draw_tiles(values: list[str], state_key: str, prefix_key: str) -> None:
                 st.rerun()
 
 
+def get_common_entities(
+    df_hist: pd.DataFrame,
+    df_future: pd.DataFrame | None,
+    entity_col: str,
+) -> set[str] | None:
+    """Retorna entidades comunes entre histórico y futuro para comparar en el mismo universo."""
+    if df_future is None or df_future.empty:
+        return None
+    if entity_col not in df_hist.columns or entity_col not in df_future.columns:
+        return None
+    hist_ids = set(df_hist[entity_col].dropna().astype(str).unique().tolist())
+    fut_ids = set(df_future[entity_col].dropna().astype(str).unique().tolist())
+    common = hist_ids.intersection(fut_ids)
+    return common if common else None
+
+
 PLOTLY_TEMPLATE = dict(
     layout=dict(
         paper_bgcolor="rgba(22, 33, 62, 0.9)",
@@ -87,8 +103,17 @@ PLOTLY_TEMPLATE = dict(
     )
 )
 
+PREDICTIONS_PARQUET = p.PREDICTIONS_PARQUET
+PREDICTIONS_CSV = p.PREDICTIONS_CSV
+PREDICTIONS_BY_STORE_PARQUET = p.PREDICTIONS_BY_STORE_PARQUET
+_pred_dir = PREDICTIONS_PARQUET.parent
+FUTURE_CATEGORIES_PARQUET = getattr(p, "FUTURE_CATEGORIES_PARQUET", _pred_dir / "forecasting_future_categories.parquet")
+FUTURE_STORES_PARQUET = getattr(p, "FUTURE_STORES_PARQUET", _pred_dir / "forecasting_future_stores.parquet")
+
 df_cat = load_predictions(str(PREDICTIONS_PARQUET), str(PREDICTIONS_CSV))
 df_store = load_predictions(str(PREDICTIONS_BY_STORE_PARQUET))
+df_cat_future = load_predictions(str(FUTURE_CATEGORIES_PARQUET))
+df_store_future = load_predictions(str(FUTURE_STORES_PARQUET))
 
 st.title("Ventas y predicciones")
 
@@ -161,23 +186,71 @@ else:
         if len(df_cat_f) == 0:
             st.info("No hay datos para el filtro de categorías seleccionado.")
         else:
-            t1, t2, t3 = st.tabs(["Serie temporal", "Por categoría", "Tabla"])
+            common_cats = get_common_entities(df_cat_f, df_cat_future, "categoria")
+            if common_cats is not None:
+                df_cat_f = df_cat_f[df_cat_f["categoria"].astype(str).isin(common_cats)]
+
+            t1, t2 = st.tabs(["Serie temporal", "Por categoría"])
             with t1:
-                agg = df_cat_f.groupby("fecha").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
-                fig = go.Figure()
-                fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[actual_col], name="Actual", line=dict(color="#94a3b8", width=2)))
-                fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[pred_col], name="Predicho", line=dict(color=ACCENT, width=2.5)))
-                fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho (categorías)", height=390)
-                st.plotly_chart(fig, use_container_width=True)
+                if len(df_cat_f) == 0:
+                    st.info("No hay categorías comunes entre histórico y forecast futuro para el filtro actual.")
+                else:
+                    agg = df_cat_f.groupby("fecha").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
+                    fig = go.Figure()
+                    fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[actual_col], name="Historico", line=dict(color="#94a3b8", width=2)))
+                    fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[pred_col], name="Prediccion", line=dict(color=ACCENT, width=2.5)))
+                    if df_cat_future is not None and not df_cat_future.empty:
+                        fut_mask = pd.Series(True, index=df_cat_future.index)
+                        if cat_sel != "Todas" and "categoria" in df_cat_future.columns:
+                            fut_mask &= df_cat_future["categoria"].astype(str) == cat_sel
+                        if common_cats is not None and "categoria" in df_cat_future.columns:
+                            fut_mask &= df_cat_future["categoria"].astype(str).isin(common_cats)
+                        fut_col = "pred_ensemble" if "pred_ensemble" in df_cat_future.columns else "predicho"
+                        df_cat_future_f = df_cat_future.loc[fut_mask]
+                        if len(df_cat_future_f) > 0 and {"fecha", fut_col}.issubset(df_cat_future_f.columns):
+                            fut_agg = df_cat_future_f.groupby("fecha")[fut_col].sum().reset_index()
+                            fig.add_trace(
+                                go.Scatter(
+                                    x=fut_agg["fecha"],
+                                    y=fut_agg[fut_col],
+                                    name="Prediccion futura",
+                                    line=dict(color="#f59e0b", width=2.5, dash="dash"),
+                                )
+                            )
+                    fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Historico vs prediccion (categorías)", height=390)
+                    st.plotly_chart(fig, use_container_width=True)
+                    if common_cats is not None:
+                        st.caption(f"Comparación alineada en categorías comunes: {len(common_cats)}")
             with t2:
-                bar = df_cat_f.groupby("categoria").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
-                fig = go.Figure()
-                fig.add_trace(go.Bar(x=bar["categoria"], y=bar[actual_col], name="Actual", marker_color="#94a3b8"))
-                fig.add_trace(go.Bar(x=bar["categoria"], y=bar[pred_col], name="Predicho", marker_color=ACCENT))
-                fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho por categoría", barmode="group", height=420, xaxis_tickangle=-45)
-                st.plotly_chart(fig, use_container_width=True)
-            with t3:
-                st.dataframe(df_cat_f, use_container_width=True)
+                if len(df_cat_f) == 0:
+                    st.info("No hay categorías comunes para mostrar barras.")
+                else:
+                    bar = df_cat_f.groupby("categoria").agg({actual_col: "sum", pred_col: "sum"}).reset_index()
+                    fig = go.Figure()
+                    fig.add_trace(go.Bar(x=bar["categoria"], y=bar[actual_col], name="Historico", marker_color="#94a3b8"))
+                    fig.add_trace(go.Bar(x=bar["categoria"], y=bar[pred_col], name="Prediccion", marker_color=ACCENT))
+                    if df_cat_future is not None and not df_cat_future.empty and "categoria" in df_cat_future.columns:
+                        fut_col = "pred_ensemble" if "pred_ensemble" in df_cat_future.columns else "predicho"
+                        fut_mask = pd.Series(True, index=df_cat_future.index)
+                        if cat_sel != "Todas":
+                            fut_mask &= df_cat_future["categoria"].astype(str) == cat_sel
+                        if common_cats is not None:
+                            fut_mask &= df_cat_future["categoria"].astype(str).isin(common_cats)
+                        df_cat_future_f = df_cat_future.loc[fut_mask]
+                        if len(df_cat_future_f) > 0 and fut_col in df_cat_future_f.columns:
+                            fut_bar = (
+                                df_cat_future_f.groupby("categoria")[fut_col]
+                                .sum()
+                                .reset_index()
+                                .rename(columns={fut_col: "prediccion_futura"})
+                            )
+                            bar = bar.merge(fut_bar, on="categoria", how="outer").fillna(0.0)
+                            fig = go.Figure()
+                            fig.add_trace(go.Bar(x=bar["categoria"], y=bar[actual_col], name="Historico", marker_color="#94a3b8"))
+                            fig.add_trace(go.Bar(x=bar["categoria"], y=bar[pred_col], name="Prediccion", marker_color=ACCENT))
+                            fig.add_trace(go.Bar(x=bar["categoria"], y=bar["prediccion_futura"], name="Prediccion futura", marker_color="#f59e0b"))
+                    fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Historico vs prediccion por categoría", barmode="group", height=420, xaxis_tickangle=-45)
+                    st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 
@@ -201,6 +274,10 @@ else:
     if len(df_store_f) == 0:
         st.info("No hay datos para el filtro de tiendas seleccionado.")
     else:
+        common_stores = get_common_entities(df_store_f, df_store_future, "store_id")
+        if common_stores is not None:
+            df_store_f = df_store_f[df_store_f["store_id"].astype(str).isin(common_stores)]
+
         top_stores = (
             df_store_f.groupby("store_id")[actual_store_col]
             .sum()
@@ -214,14 +291,39 @@ else:
         st.caption(f"{len(df_store_f):,} filas filtradas | Tiendas visibles: {df_store_f['store_id'].nunique() if 'store_id' in df_store_f.columns else 0}")
         draw_tiles(top_stores, "ventas_store_sel", "tile_store")
 
-        t1, t2, t3 = st.tabs(["Serie temporal tiendas", "Por tienda", "Tabla tiendas"])
+        t1, t2 = st.tabs(["Serie temporal tiendas", "Por tienda"])
         with t1:
-            agg = df_store_f.groupby("fecha").agg({actual_store_col: "sum", pred_store_col: "sum"}).reset_index()
-            fig = go.Figure()
-            fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[actual_store_col], name="Actual", line=dict(color="#94a3b8", width=2)))
-            fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[pred_store_col], name="Predicho", line=dict(color=ACCENT, width=2.5)))
-            fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Actual vs predicho (tiendas)", height=390)
-            st.plotly_chart(fig, use_container_width=True)
+            if len(df_store_f) == 0:
+                st.info("No hay `store_id` comunes entre histórico y forecast futuro para el filtro actual.")
+            else:
+                agg = df_store_f.groupby("fecha").agg({actual_store_col: "sum", pred_store_col: "sum"}).reset_index()
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[actual_store_col], name="Historico", line=dict(color="#94a3b8", width=2)))
+                fig.add_trace(go.Scatter(x=agg["fecha"], y=agg[pred_store_col], name="Prediccion", line=dict(color=ACCENT, width=2.5)))
+                if df_store_future is not None and not df_store_future.empty:
+                    fut_mask = pd.Series(True, index=df_store_future.index)
+                    if tier_sel != "Todas" and "store_abc" in df_store_future.columns:
+                        fut_mask &= df_store_future["store_abc"].astype(str) == tier_sel
+                    if store_sel != "Todas" and "store_id" in df_store_future.columns:
+                        fut_mask &= df_store_future["store_id"].astype(str) == store_sel
+                    if common_stores is not None and "store_id" in df_store_future.columns:
+                        fut_mask &= df_store_future["store_id"].astype(str).isin(common_stores)
+                    fut_col = "pred_ensemble" if "pred_ensemble" in df_store_future.columns else "predicho"
+                    df_store_future_f = df_store_future.loc[fut_mask]
+                    if len(df_store_future_f) > 0 and {"fecha", fut_col}.issubset(df_store_future_f.columns):
+                        fut_agg = df_store_future_f.groupby("fecha")[fut_col].sum().reset_index()
+                        fig.add_trace(
+                            go.Scatter(
+                                x=fut_agg["fecha"],
+                                y=fut_agg[fut_col],
+                                name="Prediccion futura",
+                                line=dict(color="#f59e0b", width=2.5, dash="dash"),
+                            )
+                        )
+                fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Historico vs prediccion (tiendas)", height=390)
+                st.plotly_chart(fig, use_container_width=True)
+                if common_stores is not None:
+                    st.caption(f"Comparación alineada en `store_id` comunes: {len(common_stores)}")
         with t2:
             if "store_id" in df_store_f.columns:
                 by_store = (
@@ -230,11 +332,32 @@ else:
                     .head(20)
                 )
                 fig = go.Figure()
-                fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[actual_store_col], name="Actual", marker_color="#94a3b8"))
-                fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[pred_store_col], name="Predicho", marker_color=ACCENT))
+                fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[actual_store_col], name="Historico", marker_color="#94a3b8"))
+                fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[pred_store_col], name="Prediccion", marker_color=ACCENT))
+                if df_store_future is not None and not df_store_future.empty and "store_id" in df_store_future.columns:
+                    fut_col = "pred_ensemble" if "pred_ensemble" in df_store_future.columns else "predicho"
+                    fut_mask = pd.Series(True, index=df_store_future.index)
+                    if tier_sel != "Todas" and "store_abc" in df_store_future.columns:
+                        fut_mask &= df_store_future["store_abc"].astype(str) == tier_sel
+                    if store_sel != "Todas":
+                        fut_mask &= df_store_future["store_id"].astype(str) == store_sel
+                    if common_stores is not None:
+                        fut_mask &= df_store_future["store_id"].astype(str).isin(common_stores)
+                    df_store_future_f = df_store_future.loc[fut_mask]
+                    if len(df_store_future_f) > 0 and fut_col in df_store_future_f.columns:
+                        fut_by_store = (
+                            df_store_future_f.groupby("store_id")[fut_col]
+                            .sum()
+                            .reset_index()
+                            .rename(columns={fut_col: "prediccion_futura"})
+                        )
+                        by_store = by_store.merge(fut_by_store, on="store_id", how="outer").fillna(0.0)
+                        by_store = by_store.sort_values(actual_store_col, ascending=False).head(20)
+                        fig = go.Figure()
+                        fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[actual_store_col], name="Historico", marker_color="#94a3b8"))
+                        fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store[pred_store_col], name="Prediccion", marker_color=ACCENT))
+                        fig.add_trace(go.Bar(x=by_store["store_id"].astype(str), y=by_store["prediccion_futura"], name="Prediccion futura", marker_color="#f59e0b"))
                 fig.update_layout(**PLOTLY_TEMPLATE["layout"], title="Top 20 tiendas por ventas", barmode="group", height=420, xaxis_tickangle=-45)
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("No hay columna `store_id` en el archivo de tiendas.")
-        with t3:
-            st.dataframe(df_store_f, use_container_width=True)

@@ -18,3 +18,7 @@ PREDICTIONS_CSV = BASE / "data" / "predictions" / "forecasting_predictions.csv"
 
 # Predicciones por tienda (para vista secundaria agrupada por tier/store_abc)
 PREDICTIONS_BY_STORE_PARQUET = BASE / "data" / "predictions" / "forecasting_predictions_by_store.parquet"
+
+# Forecast futuro (horizonte) para categorías y tiendas
+FUTURE_CATEGORIES_PARQUET = BASE / "data" / "predictions" / "forecasting_future_categories.parquet"
+FUTURE_STORES_PARQUET = BASE / "data" / "predictions" / "forecasting_future_stores.parquet"

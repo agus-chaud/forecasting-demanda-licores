@@ -24,3 +24,4 @@ dashboard/.streamlit/secrets.toml
 Iowa_Liquor_Sales.csv
 model_cache/
 walkforward_sarima_categoria.pkl
+*.joblib
